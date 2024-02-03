@@ -13,7 +13,7 @@ https://nodejs.org/en
 <br>
 https://www.npmjs.com/
 <br>
-Once installed, open the project to the directory where you see index.html and use npm to install 3JS and vite (a runtime tool to server your files)
+Once installed, open the project to the directory where you see index.html and use npm to install 3JS and vite
 ```
 npm install --save three
 npm install --save-dev vite
