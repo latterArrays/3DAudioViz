@@ -1,5 +1,5 @@
 ## 3DAudioViz
-#### This is a test of combining 3JS with the Web Audio API
+#### This is a test of combining three.js with the Web Audio API
 
 This vizualization uses the microphone to render a 3D cylindrical line which changes based on the average input gain. 
 There are controls for adjusting the speed of the animation. 
@@ -13,7 +13,7 @@ https://nodejs.org/en
 <br>
 https://www.npmjs.com/
 <br>
-Once installed, open the project to the directory where you see index.html and use npm to install 3JS and vite
+Once installed, open the project to the directory where you see index.html and use npm to install three.js and vite
 ```
 npm install --save three
 npm install --save-dev vite
@@ -29,7 +29,7 @@ Then, it should give you a localhost URL to open. Grant permissions to use your 
 The color of the line is a known bug :D
 
 #### Resources
-3JS
+three.js
 https://threejs.org/examples
 <br>
 
