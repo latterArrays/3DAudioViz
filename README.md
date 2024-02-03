@@ -37,6 +37,6 @@ Web Audio API
 https://mdn.github.io/webaudio-examples/
 <br>
 
-This code was adapted from a 3JS example spline animation
+This code was adapted from a three.js example spline animation
 https://threejs.org/examples/#webgl_geometry_extrude_shapes
 <br>
