@@ -1,228 +1,385 @@
-
 import * as THREE from 'three';
 
-import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-let camera, scene, renderer, controls;
-let mesh2, frameCount = 0; 
-let isPaused = false;
-let animationSpeed = 0.1; // Initial animation speed
-let pointArray = [], numPoints = 25;
-let audioContext, analyserNode, microphoneGain;
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+let container;
+let camera, scene, renderer;
+const splineHelperObjects = [];
+let splinePointsLength = 4;
+const positions = [];
+const point = new THREE.Vector3();
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const onUpPosition = new THREE.Vector2();
+const onDownPosition = new THREE.Vector2();
+
+const geometry = new THREE.BoxGeometry(20, 20, 20);
+let transformControl;
+
+const ARC_SEGMENTS = 200;
+
+const splines = {};
+
+const params = {
+    red: 255,
+    green: 255,
+    blue: 255,
+    brightness: 255,
+    drums: 100,
+    bass: 100, 
+    guitar: 100, 
+    synth: 100,
+    cameraPan: 50,
+    mute: false,
+
+};
 
 init();
 
-async function init() {
+function init() {
 
-    // Initialize the audio context
-    document.addEventListener('click', initializeAudioContext, { once: true });
-
-    // Initialize the visualization
-    initVisualization();
-
-    // Start the animation
-    animate();
-    
-}
-
-function initializeAudioContext() {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    initMicrophone();
-}
-
-async function initMicrophone() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        microphoneGain = audioContext.createGain();
-        const microphoneStream = audioContext.createMediaStreamSource(stream);
-        microphoneStream.connect(microphoneGain);
-        analyserNode = audioContext.createAnalyser();
-        microphoneGain.connect(analyserNode);
-        analyserNode.fftSize = 256;
-    } catch (error) {
-        console.error('Error accessing microphone:', error);
-    }
-}
-
-
-function initVisualization() {
-
-    const info = document.createElement( 'div' );
-    info.style.position = 'absolute';
-    info.style.top = '10px';
-    info.style.width = '100%';
-    info.style.textAlign = 'center';
-    info.style.color = '#fff';
-    info.style.link = '#f80';
-    info.innerHTML = '<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> webgl - geometry extrude shapes';
-    document.body.appendChild( info );
-
-    renderer = new THREE.WebGLRenderer( { antialias: true } );
-    renderer.setPixelRatio( window.devicePixelRatio );
-    renderer.setSize( window.innerWidth, window.innerHeight );
-    document.body.appendChild( renderer.domElement );
+    container = document.getElementById('container');
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color( 0x222222 );
+    scene.background = new THREE.Color(0xf0f0f0);
 
-    camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
-    camera.position.set( 0, 0, 500 );
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 10000);
+    camera.position.set(0, 250, 1000);
+    scene.add(camera);
+    console.log(JSON.stringify(camera,null,4))
 
-    controls = new TrackballControls( camera, renderer.domElement );
-    controls.minDistance = 200;
-    controls.maxDistance = 1000;
+    scene.add(new THREE.AmbientLight(0xf0f0f0, 3));
+    const light = new THREE.SpotLight(0xffffff, 4.5);
+    light.position.set(0, 1500, 200);
+    light.angle = Math.PI * 0.2;
+    light.decay = 0;
+    light.castShadow = true;
+    light.shadow.camera.near = 200;
+    light.shadow.camera.far = 2000;
+    light.shadow.bias = - 0.000222;
+    light.shadow.mapSize.width = 1024;
+    light.shadow.mapSize.height = 1024;
+    scene.add(light);
 
-    scene.add( new THREE.AmbientLight( 0x666666 ) );
+    const planeGeometry = new THREE.PlaneGeometry(2000, 2000);
+    planeGeometry.rotateX(- Math.PI / 2);
+    const planeMaterial = new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.2 });
 
-    const light = new THREE.PointLight( 0xffffff, 3, 0, 0 );
-    light.position.copy( camera.position );
-    scene.add( light );
-    // Add a button to toggle pause/play
-    const toggleButton = document.createElement('button');
-    toggleButton.innerText = 'Pause/Play';
-    toggleButton.style.position = 'absolute';
-    toggleButton.style.top = '10px';
-    toggleButton.style.right = '10px';
-    toggleButton.addEventListener('click', togglePausePlay);
-    document.body.appendChild(toggleButton);
+    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+    plane.position.y = - 200;
+    plane.receiveShadow = true;
+    scene.add(plane);
 
-    // Add a slider to control animation speed
-    const speedSlider = document.createElement('input');
-    speedSlider.type = 'range';
-    speedSlider.min = '0.1';
-    speedSlider.max = '2.0';
-    speedSlider.step = '0.1';
-    speedSlider.value = '0.1';
-    speedSlider.style.position = 'absolute';
-    speedSlider.style.top = '40px';
-    speedSlider.style.right = '10px';
-    speedSlider.addEventListener('input', updateSpeed);
-    document.body.appendChild(speedSlider);
+    const helper = new THREE.GridHelper(2000, 100);
+    helper.position.y = - 199;
+    helper.material.opacity = 0.25;
+    helper.material.transparent = true;
+    scene.add(helper);
 
-    initPointArray()
-}
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
 
-function initPointArray() {
-    for ( let i = 0; i < numPoints; i ++ ) {
-        pointArray.push(0)
+    const gui = new GUI();
+
+    gui.add(params, 'red', 0, 255).onChange(render);
+    gui.add(params, 'green', 0, 255).onChange(render);
+    gui.add(params, 'blue', 0, 255).onChange(render);
+    gui.add(params, 'brightness', 0, 255).onChange(render);
+    gui.add(params, 'bass', 0, 100).onChange(render);
+    gui.add(params, 'guitar', 0, 100).onChange(render);
+    gui.add(params, 'drums', 0, 100).onChange(render);
+    gui.add(params, 'synth', 0, 100).onChange(render);
+    gui.add(params, 'cameraPan', 0, 100).onChange(render);
+    gui.add(params, 'mute').onChange(render);
+
+    gui.open();
+
+    // Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.damping = 0.2;
+    controls.addEventListener('change', render);
+
+    transformControl = new TransformControls(camera, renderer.domElement);
+    transformControl.addEventListener('change', render);
+    transformControl.addEventListener('dragging-changed', function (event) {
+
+        controls.enabled = !event.value;
+
+    });
+    scene.add(transformControl);
+
+    transformControl.addEventListener('objectChange', function () {
+
+        updateSplineOutline();
+
+    });
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('resize', onWindowResize);
+
+    /*******
+     * Curves
+     *********/
+
+    for (let i = 0; i < splinePointsLength; i++) {
+
+        addSplineObject(positions[i]);
+
     }
-}
 
-function shiftPointArray( newPoint ) {
-    for (let i = 0; i < numPoints-1; i++ ) {
-        pointArray[i] = pointArray[i+1]
+    console.log(JSON.stringify(positions,null,4))
+    console.log(JSON.stringify(splineHelperObjects,null,4))
+
+    positions.length = 0;
+
+    for (let i = 0; i < splinePointsLength; i++) {
+
+        positions.push(splineHelperObjects[i].position);
+
     }
 
-    pointArray[numPoints-1] = newPoint
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_SEGMENTS * 3), 3));
 
-}
+    let curve = new THREE.CatmullRomCurve3(positions);
+    curve.curveType = 'catmullrom';
+    curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+        color: 0xff0000,
+        opacity: 0.35
+    }));
+    curve.mesh.castShadow = true;
+    splines.uniform = curve;
+    console.log("THIS ONE!")
+    console.log(JSON.stringify(curve,null,4))
 
-function updateScene() {
 
-    scene.remove(mesh2);
+    curve = new THREE.CatmullRomCurve3(positions);
+    curve.curveType = 'centripetal';
+    curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+        color: 0x00ff00,
+        opacity: 0.35
+    }));
+    curve.mesh.castShadow = true;
+    splines.centripetal = curve;
 
+    curve = new THREE.CatmullRomCurve3(positions);
+    curve.curveType = 'chordal';
+    curve.mesh = new THREE.Line(geometry.clone(), new THREE.LineBasicMaterial({
+        color: 0x0000ff,
+        opacity: 0.35
+    }));
+    curve.mesh.castShadow = true;
+    splines.chordal = curve;
 
-    const ThreeDPoints = [];
+    for (const k in splines) {
 
-    for ( let i = 0; i < numPoints; i ++ ) {
+        const spline = splines[k];
+        scene.add(spline.mesh);
 
-        ThreeDPoints.push( new THREE.Vector3( ( i - 4.5 ) * 50, pointArray[i], 0) );
     }
 
-    const randomSpline = new THREE.CatmullRomCurve3( ThreeDPoints );
+    load([new THREE.Vector3(289.76843686945404, 452.51481137238443, 56.10018915737797),
+    new THREE.Vector3(- 53.56300074753207, 171.49711742836848, - 14.495472686253045),
+    new THREE.Vector3(- 91.40118730204415, 176.4306956436485, - 6.958271935582161),
+    new THREE.Vector3(- 383.785318791128, 491.1365363371675, 47.869296953772746)]);
 
-    //
-
-    const extrudeSettings2 = {
-        steps: 200,
-        bevelEnabled: false,
-        extrudePath: randomSpline
-    };
-
-
-    const pts2 = [], numPts = 100; // Increase the number of points for a smoother shape
-
-for (let i = 0; i < numPts; i++) {
-    const radius = 20; // Adjust the radius as needed
-    const angle = (i / numPts) * Math.PI * 2;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
-
-    pts2.push(new THREE.Vector2(x, y));
-}
-
-const shape2 = new THREE.Shape(pts2);
-
-
-    const geometry2 = new THREE.ExtrudeGeometry( shape2, extrudeSettings2 );
-
- // Create a gradient color based on the position along the spline
- const gradientColor = new THREE.Color();
- gradientColor.setHSL((frameCount*100 / 200) % 1, 1, 0.5); // Adjust hue for gradient variation
-
- // Apply the gradient color to the material
- const material2 = new THREE.MeshLambertMaterial({
-     color: gradientColor,
-     wireframe: false,
- });
-    mesh2 = new THREE.Mesh( geometry2, material2 );
-
-    scene.add( mesh2 );
-
+    render();
 
 }
 
-function togglePausePlay() {
-    isPaused = !isPaused;
+function addSplineObject(position) {
+
+    const material = new THREE.MeshLambertMaterial({ color: Math.random() * 0xffffff });
+    const object = new THREE.Mesh(geometry, material);
+
+    if (position) {
+
+        object.position.copy(position);
+
+    } else {
+
+        object.position.x = Math.random() * 1000 - 500;
+        object.position.y = Math.random() * 600;
+        object.position.z = Math.random() * 800 - 400;
+
+    }
+
+    object.castShadow = true;
+    object.receiveShadow = true;
+    scene.add(object);
+    splineHelperObjects.push(object);
+    return object;
+
 }
 
-function updateSpeed(event) {
-    animationSpeed = parseFloat(event.target.value) * 3;
+function addPoint() {
+
+    splinePointsLength++;
+
+    positions.push(addSplineObject().position);
+
+    updateSplineOutline();
+
+    render();
+
 }
 
-function animate() {
+function removePoint() {
 
-    requestAnimationFrame(animate);
+    if (splinePointsLength <= 4) {
 
+        return;
 
-    // Use Microphone 
-    if (!isPaused) {
+    }
 
-        // Update frame count and render the scene
-        frameCount = frameCount + animationSpeed;
-        if (frameCount >= 15) {
+    const point = splineHelperObjects.pop();
+    splinePointsLength--;
+    positions.pop();
 
-            // Analyze microphone data
-            const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-            analyserNode.getByteFrequencyData(dataArray);
+    if (transformControl.object === point) transformControl.detach();
+    scene.remove(point);
 
-            // Calculate the average gain from the microphone data
-            const averageGain = dataArray.reduce((acc, value) => acc + value, 0) / dataArray.length;
+    updateSplineOutline();
 
-            // Update the points based on the average gain
-            shiftPointArray(averageGain);
-            updateScene();
-            frameCount = 0;
+    render();
+
+}
+
+function updateSplineOutline() {
+
+    for (const k in splines) {
+
+        const spline = splines[k];
+
+        const splineMesh = spline.mesh;
+        const position = splineMesh.geometry.attributes.position;
+
+        for (let i = 0; i < ARC_SEGMENTS; i++) {
+
+            const t = i / (ARC_SEGMENTS - 1);
+            spline.getPoint(t, point);
+            position.setXYZ(i, point.x, point.y, point.z);
 
         }
 
-        controls.update();
-        renderer.render(scene, camera);
+        position.needsUpdate = true;
+
     }
-
-    // Random points
-    // if (!isPaused) {
-    //     frameCount = frameCount + animationSpeed;
-
-    //     if (frameCount >= 15) {
-    //         updateScene();
-    //         shiftPointArray(THREE.MathUtils.randFloat(-100, 100));
-    //         frameCount = 0;
-    //     }
-
-    //     controls.update();
-    //     renderer.render(scene, camera);
-    // }
 
 }
 
+function exportSpline() {
+
+    const strplace = [];
+
+    for (let i = 0; i < splinePointsLength; i++) {
+
+        const p = splineHelperObjects[i].position;
+        strplace.push(`new THREE.Vector3(${p.x}, ${p.y}, ${p.z})`);
+
+    }
+
+    console.log(strplace.join(',\n'));
+    const code = '[' + (strplace.join(',\n\t')) + ']';
+    prompt('copy and paste code', code);
+
+}
+
+function load(new_positions) {
+
+    while (new_positions.length > positions.length) {
+
+        addPoint();
+
+    }
+
+    while (new_positions.length < positions.length) {
+
+        removePoint();
+
+    }
+
+    for (let i = 0; i < positions.length; i++) {
+
+        positions[i].copy(new_positions[i]);
+
+    }
+
+    updateSplineOutline();
+
+}
+
+function render() {
+
+    splines.uniform.mesh.visible = params.uniform;
+    splines.centripetal.mesh.visible = params.centripetal;
+    splines.chordal.mesh.visible = params.chordal;
+    renderer.render(scene, camera);
+    console.log(JSON.stringify(camera,null,4))
+
+
+}
+
+function onPointerDown(event) {
+
+    onDownPosition.x = event.clientX;
+    onDownPosition.y = event.clientY;
+
+}
+
+function onPointerUp(event) {
+
+    onUpPosition.x = event.clientX;
+    onUpPosition.y = event.clientY;
+
+    if (onDownPosition.distanceTo(onUpPosition) === 0) {
+
+        transformControl.detach();
+        render();
+
+    }
+
+}
+
+function onPointerMove(event) {
+
+    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+
+    const intersects = raycaster.intersectObjects(splineHelperObjects, false);
+
+    if (intersects.length > 0) {
+
+        const object = intersects[0].object;
+
+        if (object !== transformControl.object) {
+
+            transformControl.attach(object);
+
+        }
+
+    }
+
+}
+
+function onWindowResize() {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    render();
+
+}
